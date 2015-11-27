@@ -201,36 +201,23 @@ include_once('version.php');
         foreach (RequestProcessor::GetSpecialHeaders() as $header)
             header($header);
 
-        // stream the data
-        $len = ob_get_length();
-        $data = ob_get_contents();
-        ob_end_clean();
-
         // log amount of data transferred
         // TODO check $len when streaming more data (e.g. Attachments), as the data will be send chunked
-        ZPush::GetDeviceManager()->SentData($len);
+        ZPush::GetDeviceManager()->SentData(ob_get_length());
 
-        // Unfortunately, even though Z-Push can stream the data to the client
-        // with a chunked encoding, using chunked encoding breaks the progress bar
-        // on the PDA. So the data is de-chunk here, written a content-length header and
-        // data send as a 'normal' packet. If the output packet exceeds 1MB (see ob_start)
-        // then it will be sent as a chunked packet anyway because PHP will have to flush
-        // the buffer.
-        if(!headers_sent())
-            header("Content-Length: $len");
-
-        // send vnd.ms-sync.wbxml content type header if there is no content
-        // otherwise text/html content type is added which might break some devices
-        if (!headers_sent() && $len == 0)
-            header("Content-Type: application/vnd.ms-sync.wbxml");
-
-        print $data;
+        ZPush::FinishResponse();
 
         // destruct backend after all data is on the stream
         $backend->Logoff();
     }
 
     catch (NoPostRequestException $nopostex) {
+        $len = ob_get_length();
+        if ($len) {
+            ZLog::Write(LOGLEVEL_WARN, 'Destroying '.$len.' octets of data');
+            ob_clean();
+        }
+
         if ($nopostex->getCode() == NoPostRequestException::OPTIONS_REQUEST) {
             header(ZPush::GetServerHeader());
             header(ZPush::GetSupportedProtocolVersions());
@@ -243,9 +230,17 @@ include_once('version.php');
             if (!headers_sent() && $nopostex->showLegalNotice())
                 ZPush::PrintZPushLegal('GET not supported', $nopostex->getMessage());
         }
+
+        ZPush::FinishResponse();
     }
 
     catch (Exception $ex) {
+        $len = ob_get_length();
+        if ($len) {
+            ZLog::Write(LOGLEVEL_WARN, 'Destroying '.$len.' octets of data');
+            ob_clean();
+        }
+
         // Extract any previous exception message for logging purpose.
         $exclass = get_class($ex);
         $exception_message = $ex->getMessage();
@@ -301,6 +296,8 @@ include_once('version.php');
 
         // Announce exception if the TopCollector if available
         ZPush::GetTopCollector()->AnnounceInformation(get_class($ex), true);
+
+        ZPush::FinishResponse();
     }
 
     // save device data if the DeviceManager is available
