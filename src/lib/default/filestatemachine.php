@@ -120,6 +120,9 @@ class FileStateMachine implements IStateMachine {
      * @throws StateNotFoundException, StateInvalidException
      */
     public function GetState($devid, $type, $key = false, $counter = false, $cleanstates = true) {
+        if ($type == IStateMachine::BACKENDSTORAGE && $key && strlen($key) == 40) {
+            $this->AddKeyToState($devid, $type, $key, $counter);
+        }
         if ($counter && $cleanstates)
             $this->CleanStates($devid, $type, $key, $counter);
 
@@ -135,6 +138,22 @@ class FileStateMachine implements IStateMachine {
         // throw an exception on all other states, but not FAILSAVE as it's most of the times not there by default
         else if ($type !== IStateMachine::FAILSAVE)
             throw new StateNotFoundException(sprintf("FileStateMachine->GetState(): Could not locate state '%s'",$filename));
+    }
+
+    /**
+     * function to migrate old backendstorage state
+     *
+     * @param string    $devid              the device id
+     * @param string    $type               the state type
+     * @param string    $key                the state key
+     * @param string    $counter            the state counter
+     */
+    private function AddKeyToState($devid, $type, $key, $counter) {
+        $old = $this->getFullFilePath($devid, $type, false, $counter);
+        $new = $this->getFullFilePath($devid, $type, $key, $counter);
+        if (@rename($old, $new)) {
+            ZLog::Write(LOGLEVEL_INFO, sprintf("FileStateMachine->AddKeyToState() on file: '%s'", $new));
+        }
     }
 
     /**
