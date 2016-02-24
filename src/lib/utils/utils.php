@@ -403,6 +403,61 @@ class Utils {
     }
 
     /**
+     * Ftruncate an UTF-8 encoded stream correctly
+     *
+     * @param stream $string - the stream
+     * @param string $length - position where string should be cut
+     * @return stream truncated stream
+     */
+    public static function Utf8_stream_ftruncate($stream, $length) {
+        // make sure length is always an integer
+        $length = (int)$length;
+        if (stream_get_meta_data($stream)["seekable"] !== true) {
+            //not seekable, using a copy
+            $temp = fopen('php://memory', 'r+');
+            stream_copy_to_stream($stream, $temp, $length);
+            $stream = $temp;
+        }
+
+        $finallength = $length;
+        while ($finallength > 0) {
+            fseek($stream, $finallength-1);
+            $char = ord(fgetc($stream));
+
+            if ($char < 0x80 || $char >= 0xC0) {
+                //not a continuation byte -> exit
+                break;
+            }
+
+            $finallength--;
+        }
+
+        $charlen= 0;
+        if ($char >= 0xF0) {
+            //start of 4 bytes utf8 char
+            $charlen = 4;
+        } elseif ($char >= 0xE0) {
+            //start of 3 bytes utf8 char
+            $charlen = 3;
+        } elseif ($char >= 0xC0) {
+            //start of 2 bytes utf8 char
+            $charlen = 2;
+        } elseif ($char < 0x80) {
+            //start of 1 byte char (ascii)
+            $charlen = 1;
+        }
+
+        $finallength--;
+        if ($finallength + $charlen <= $length) {
+            //we can keep this char
+            $finallength += $charlen;
+        }
+        ftruncate($stream, $finallength);
+        rewind($stream);
+        return $stream;
+    }
+
+    /**
      * Indicates if the specified folder type is a system folder
      *
      * @param int            $foldertype
