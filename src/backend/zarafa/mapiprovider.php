@@ -2484,7 +2484,7 @@ class MAPIProvider {
                     $message->asbody->estimatedDataSize > $bpo->GetTruncationSize()
                 ) {
                 // truncate data stream
-                ftruncate($message->asbody->data, $bpo->GetTruncationSize());
+                $message->asbody->data = Utils::Utf8_stream_ftruncate($message->asbody->data, $bpo->GetTruncationSize());
                 $message->asbody->truncated = 1;
             }
             // set the preview or windows phones won't show the preview of an email
