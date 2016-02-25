@@ -458,6 +458,55 @@ class Utils {
     }
 
     /**
+     * UTF-8 aware stream_copy_to_stream
+     * This only handle "right" utf8 truncation for now
+     * (offset/current position should align with utf8 char start)
+     *
+     */
+    public static function Utf8_stream_copy_to_stream($source, $dest, $maxlength = -1, $offset = null) {
+        if ($maxlength === -1)
+            return stream_copy_to_stream($source, $dest, $maxlength, $offset);
+
+        $tmplen = $maxlength-4;
+        if ($tmplen < 0)
+            $tmplen = 0;
+
+        $copiedlen = stream_copy_to_stream($source, $dest, $tmplen, $offset);
+
+        //nothing more to copy -> return
+        if ($copiedlen < $tmplen)
+            return $copiedlen;
+
+        //$copiedlen == $tmplen here
+        while ($copiedlen < $maxlength) {
+            if(($char = fgetc($source)) === false)
+                break;
+
+            $charlen= 1;
+            if (ord($char) >= 0xF0) {
+                //start of 4 bytes utf8 char
+                $charlen = 4;
+            } elseif (ord($char) >= 0xE0) {
+                //start of 3 bytes utf8 char
+                $charlen = 3;
+            } elseif (ord($char) >= 0xC0) {
+                //start of 2 bytes utf8 char
+                $charlen = 2;
+            }
+
+            if ($copiedlen + $charlen <= $maxlength) {
+                fwrite($dest, $char);
+                $copiedlen++;
+            } else {
+                fseek($source, -1, SEEK_CUR);
+                break;
+            }
+        }
+
+        return $copiedlen;
+    }
+
+    /**
      * Indicates if the specified folder type is a system folder
      *
      * @param int            $foldertype
