@@ -1309,8 +1309,8 @@ class TimezoneUtil {
             $tz = TimezoneUtil::FillTZNames($tz);
 
         $packed = pack("la64vvvvvvvv" . "la64vvvvvvvv" . "l",
-                $tz["bias"], $tz["tzname"], 0, $tz["dstendmonth"], $tz["dstendday"], $tz["dstendweek"], $tz["dstendhour"], $tz["dstendminute"], $tz["dstendsecond"], $tz["dstendmillis"],
-                $tz["stdbias"], $tz["tznamedst"], 0, $tz["dststartmonth"], $tz["dststartday"], $tz["dststartweek"], $tz["dststarthour"], $tz["dststartminute"], $tz["dststartsecond"], $tz["dststartmillis"],
+                $tz["bias"], $tz["tzname"], 0, $tz["dstendmonth"], $tz["dstendweek"], $tz["dstendday"], $tz["dstendhour"], $tz["dstendminute"], $tz["dstendsecond"], $tz["dstendmillis"],
+                $tz["stdbias"], $tz["tznamedst"], 0, $tz["dststartmonth"], $tz["dststartweek"], $tz["dststartday"], $tz["dststarthour"], $tz["dststartminute"], $tz["dststartsecond"], $tz["dststartmillis"],
                 $tz["dstbias"]);
 
         return $packed;
