@@ -266,9 +266,6 @@ ln -s "%zpush_dir/z-push-top.php" "$b/%_bindir/z-push-top";
 
 mkdir -p "$b/%_localstatedir/lib/z-push";
 mkdir -p "$b/%_localstatedir/log/z-push";
-mkdir -p "$b/%_sysconfdir/logrotate.d";
-install -Dpm 644 config/z-push-rhel.lr \
-    "$b/%_sysconfdir/logrotate.d/z-push.lr"
 
 # CALDAV
 mv "$bdir/caldav/config.php" "$cdir/caldav.conf.php";
@@ -323,6 +320,9 @@ install -Dpm 644 config/apache2/z-push.conf \
     "$b/%apache_dir/conf.d/z-push.conf";
 install -Dpm 644 config/apache2/z-push-autodiscover.conf \
     "$b/%apache_dir/conf.d/z-push-autodiscover.conf";
+mkdir -p "$b/%_sysconfdir/logrotate.d";
+install -Dpm 644 config/z-push-rhel.lr \
+    "$b/%_sysconfdir/logrotate.d/z-push.lr"
 
 %post -n %name-config-apache
 %if 0%{?suse_version}
