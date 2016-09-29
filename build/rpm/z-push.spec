@@ -363,8 +363,6 @@ install -Dpm 644 config/apache2/z-push-autodiscover.conf \
     %config(noreplace) %attr(0640,root,apache) %_sysconfdir/z-push/z-push.conf.php
 %endif
 
-%config(noreplace) %attr(0640,root,root) %_sysconfdir/logrotate.d/z-push.lr
-
 %exclude %zpush_dir/backend
 %exclude %zpush_dir/autodiscover
 %exclude %zpush_dir/tools/migrate-filestates-to-db.php
@@ -542,6 +540,8 @@ install -Dpm 644 config/apache2/z-push-autodiscover.conf \
 mkdir -p "$b/%_sysconfdir/logrotate.d";
 install -Dpm 644 config/z-push-rhel.lr \
     "$b/%_sysconfdir/logrotate.d/z-push.lr"
+%config(noreplace) %attr(0640,root,root) %_sysconfdir/logrotate.d/z-push.lr
+
 
 %files -n %name-config-apache-autodiscover
 %dir %apache_dir
