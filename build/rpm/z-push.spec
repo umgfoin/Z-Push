@@ -537,11 +537,11 @@ install -Dpm 644 config/apache2/z-push-autodiscover.conf \
 %dir %apache_dir
 %dir %apache_dir/conf.d
 %config(noreplace) %attr(0640,root,root) %apache_dir/conf.d/z-push.conf
+
 mkdir -p "$b/%_sysconfdir/logrotate.d";
 install -Dpm 644 config/z-push-rhel.lr \
     "$b/%_sysconfdir/logrotate.d/z-push.lr"
 %config(noreplace) %attr(0640,root,root) %_sysconfdir/logrotate.d/z-push.lr
-
 
 %files -n %name-config-apache-autodiscover
 %dir %apache_dir
