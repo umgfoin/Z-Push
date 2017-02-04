@@ -869,6 +869,97 @@ class Mail_mimeDecode
     }
 
     /**
+     * Get next character of UTF-8 string
+     *
+     * @param string $str
+     * @param integer $str_size
+     * @param integer &$pos
+     * @param string &$char
+     * @param integer &$char_size
+     * @param boolean &$valid
+     * @return boolean true
+     * @access public
+     */
+    function utf8_get_next_char($str, $str_size, &$pos, &$char, &$char_size, &$valid) {
+        $valid = false;
+
+        if ($str_size <= $pos) {
+            return false;
+        }
+
+        if ($str[$pos] < "\x80") {
+            $valid = true;
+            $char_size =  1;
+        } else if ($str[$pos] < "\xC2") {
+            $char_size = 1;
+        } else if ($str[$pos] < "\xE0")  {
+            if (!isset($str[$pos+1]) || $str[$pos+1] < "\x80" || "\xBF" < $str[$pos+1]) {
+                $char_size = 1;
+            } else {
+                $valid = true;
+                $char_size = 2;
+            }
+        } else if ($str[$pos] < "\xF0") {
+            $left = "\xE0" === $str[$pos] ? "\xA0" : "\x80";
+            $right = "\xED" === $str[$pos] ? "\x9F" : "\xBF";
+            if (!isset($str[$pos+1]) || $str[$pos+1] < $left || $right < $str[$pos+1]) {
+                $char_size = 1;
+            } else if (!isset($str[$pos+2]) || $str[$pos+2] < "\x80" || "\xBF" < $str[$pos+2]) {
+                $char_size = 2;
+            } else {
+                $valid = true;
+                $char_size = 3;
+           }
+        } else if ($str[$pos] < "\xF5") {
+            $left = "\xF0" === $str[$pos] ? "\x90" : "\x80";
+            $right = "\xF4" === $str[$pos] ? "\x8F" : "\xBF";
+            if (!isset($str[$pos+1]) || $str[$pos+1] < $left || $right < $str[$pos+1]) {
+                $char_size = 1;
+            } else if (!isset($str[$pos+2]) || $str[$pos+2] < "\x80" || "\xBF" < $str[$pos+2]) {
+                $char_size = 2;
+            } else if (!isset($str[$pos+3]) || $str[$pos+3] < "\x80" || "\xBF" < $str[$pos+3]) {
+                $char_size = 3;
+            } else {
+                $valid = true;
+                $char_size = 4;
+            }
+        } else {
+            $char_size = 1;
+        }
+
+        $char = substr($str, $pos, $char_size);
+        $pos += $char_size;
+
+        return true;
+    }
+
+    /**
+     * Replace invalid bytes in UTF-8 string into valid UTF-8
+     * characeters
+     *
+     * @param string $str
+     * @return string
+     * @access public
+     */
+    function utf8_scrub($str) {
+
+        $size = strlen($str);
+        $substitute = "\xEF\xBF\xBD";
+        $ret = '';
+
+        $pos = 0;
+        $char;
+        $char_size;
+        $valid;
+
+        while ($this->utf8_get_next_char($str, $size, $pos, $char, $char_size, $valid)) {
+            $ret .= $valid ? $char : $substitute;
+        }
+
+        return $ret;
+    }
+
+    /**
      * Autoconvert the text from any encoding. THIS WILL NEVER WORK 100%.
      * Will ignore the E_NOTICE for iconv when detecting ilegal charsets
      *
@@ -893,7 +984,21 @@ class Mail_mimeDecode
                 if ($detected_encoding === false || strlen($detected_encoding) == 0) {
                     $detected_encoding = $supposed_encoding;
                 }
-                $input_converted = iconv($detected_encoding, $this->_charset, $input);
+                // If the detected encoding is ISO-2022-JP, it should be ISO-2022-JP-MS, a superset of ISO-2022-JP
+                if ( strtoupper($detected_encoding) == 'ISO-2022-JP' ) {
+                    $detected_encoding = 'ISO-2022-JP-MS';
+                }
+                // If the detected encoding is UTF-8 and there is ISO-2022-JP's shift codes, it should be ISO-2022-JP-MS, a superset of ISO-2022-JP
+                if ( strtoupper($detected_encoding) == 'UTF-8' && strpos($input, chr(0x1b).'$B') !== FALSE ) {
+                    $detected_encoding = 'ISO-2022-JP-MS';
+                }
+                // If the detected encoding is UTF-8 and the string is invalid UTF-8 string, convert is into valid UTF-8 string
+                if ( strtoupper($detected_encoding) == 'UTF-8' && mb_check_encoding($input, $detected_encoding) === false ) {
+                    $input = $this->utf8_scrub($input);
+                }
+                // Use mb_convert_encoding() instead of iconv()
+                $input_converted = mb_convert_encoding($input, $this->_charset, $detected_encoding);
+
             }
             catch(Exception $ex) {
                 $this->raiseError($ex->getMessage());
