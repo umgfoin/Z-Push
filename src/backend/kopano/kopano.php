@@ -1578,6 +1578,11 @@ class BackendKopano implements IBackend, ISearchProvider {
         if (isset($this->storeCache[$user]))
            return  $this->storeCache[$user];
 
+        // TODO needs rework
+        if (stripos($user, 'kopanoarchive:') === 0) {
+            return $this->getArchivedStores($user);
+        }
+
         $entryid = false;
         $return_public = false;
 
@@ -1627,6 +1632,47 @@ class BackendKopano implements IBackend, ISearchProvider {
             ZLog::Write(LOGLEVEL_WARN, sprintf("KopanoBackend->openMessageStore('%s'): No store found for this user", $user));
             return false;
         }
+    }
+
+    // This code was mainly copied from WebApp and needs some love.
+    // the PR_MAILBOX_OWNER_ENTRYID can probably be taken directly from $this->defaultstore
+    // then the username can probably be ignored at all. When opening "kopanoarchive" simply the main user is used.
+    // it's also unclear how multiple archive servers should behave. Now the first one is taken.
+    // also what happens if no archive is available ?
+    private function getArchivedStores($user) {
+        if (isset($this->storeCache[$user]))
+            return  $this->storeCache[$user];
+
+        // assuming user begins with "kopanoarchive:"
+        $username = substr($user, 14);
+
+        $storeEntryid = mapi_msgstore_createentryid($this->defaultstore, $username);
+        $store = mapi_openmsgstore($this->session, $storeEntryid);
+        $storeProps = mapi_getprops($store, Array(PR_MAILBOX_OWNER_ENTRYID));
+        $userEntryid = $storeProps[PR_MAILBOX_OWNER_ENTRYID];
+
+        $ab = $this->getAddressbook();
+        $abitem = mapi_ab_openentry($ab, $userEntryid);
+        $userData = mapi_getprops($abitem, Array(PR_ACCOUNT, PR_EC_ARCHIVE_SERVERS));
+
+        // Get the store of the user, need this for the call to mapi_msgstore_getarchiveentryid()
+        $userStoreEntryid = mapi_msgstore_createentryid($this->defaultstore, $userData[PR_ACCOUNT]);
+        $userStore = mapi_openmsgstore($this->session, $userStoreEntryid);
+
+        $archiveStores = Array();
+        if(isset($userData[PR_EC_ARCHIVE_SERVERS]) && count($userData[PR_EC_ARCHIVE_SERVERS]) > 0){
+            for($i=0;$i<count($userData[PR_EC_ARCHIVE_SERVERS]);$i++){
+                // Check if the store exists. It can be that the store archiving has been enabled, but no
+                // archived store has been created an none can be found in the PR_EC_ARCHIVE_SERVERS property.
+                $archiveStoreEntryid = mapi_msgstore_getarchiveentryid($userStore, $userData[PR_ACCOUNT], $userData[PR_EC_ARCHIVE_SERVERS][$i]);
+                $store = mapi_openmsgstore($this->session, $archiveStoreEntryid);
+            }
+        }
+        // add this store to the cache
+        if (!isset($this->storeCache[$user]))
+            $this->storeCache[$user] = $store;
+
+        return $store;
     }
 
     /**
