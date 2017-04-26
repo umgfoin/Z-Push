@@ -1177,6 +1177,55 @@ class Utils {
     }
 
     /**
+     * if string is ISO-2022-JP, convert this into utf-8
+     *
+     * @access public
+     * @param $nonencstr, $utf8str
+     * @return string
+     */
+    public static function ConvertRawHeader2Utf8($nonencstr, $utf8str) {
+        if ( !isset($nonencstr) ) {
+            return $utf8str;
+        }
+        $isiso2022jp = false;
+        $str = "";
+        foreach ( imap_mime_header_decode($nonencstr) as $val ) {
+            if ( strtolower($val->charset) == "iso-2022-jp" ) {
+                $isiso2022jp = true;
+                $str .= mb_convert_encoding($val->text, "utf-8", "ISO-2022-JP-MS");
+            } else if ( strtolower($val->charset) == "default" ) {
+                $str .= $val->text;
+            } else {
+                $str .= mb_convert_encoding($val->text, "utf-8", $val->charset);
+            }
+        }
+        if ( !$isiso2022jp ) {
+            return $utf8str;
+        }
+        return $str;
+    }
+
+    /**
+     * get raw mail headers as key-value pair array
+     *
+     * @access public
+     * @param $mail
+     * @return string array
+     */
+    public static function GetRawMailHeaders($mail) {
+        $mobj = new Mail_mimeDecode($mail);
+        $headersonly = $mobj->_parseHeaders($mail);
+        $headers = array();
+        foreach ( $headersonly as $value ) {
+            if ( $value["name"] === false ) {
+                continue;
+            }
+            $headers[strtolower($value["name"])] = $value["value"];
+        }
+        return $headers;
+    }
+
+    /**
      * Check if the UTF-8 string has ISO-2022-JP esc seq 
      * if so, it is ISO-2022-JP, not UTF-8 and convert it into UTF-8
      * string
