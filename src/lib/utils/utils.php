@@ -1216,13 +1216,13 @@ class Utils {
      * @return string array
      */
     private static function GetRawMailHeaders(&$mail) {
-        // if no headers, return default headers
+        // if no headers, return FALSE
         if ( !preg_match("/^(.*?)\r?\n\r?\n/s", $mail, $match) ) {
             ZLog::Write(LOGLEVEL_DEBUG, "Utils::GetRawMailHeaders(): no header");
             return FALSE;
         }
         $input = $match[1];
-        // if no headers, return default headers                                      ]
+        // if no headers, return FALSE
         if ( $input == "" ) {
             ZLog::Write(LOGLEVEL_DEBUG, "Utils::GetRawMailHeaders(): no header");
             return FALSE;
