@@ -1233,7 +1233,7 @@ class Utils {
         $input = preg_replace("/\r\n(\t| )+/", ' ', $input);
         $headersonly = explode("\r\n", trim($input));
         unset($input);
-        $headers = array();
+        $headers = array("subject" => NULL, "from" => NULL);
         foreach ( $headersonly as $value ) {
             if ( !preg_match("/^(.+):[ \t]*(.+)$/", $value, $match) ) {
                 continue;
@@ -1266,9 +1266,16 @@ class Utils {
      * decoded
      *
      * @access public
-     * @param $mail, $message
+     * @param &$mail, $message   
+     *
+     *        &$mail is reference of the caller's, not copy. So the
+     *        call to Utils::CheckAndFixEncodingInHeaders() will not
+     *        require memory for $mail.
+     *        $message is a instance of a class. So the call to 
+     *        Utils::CheckAndFixEncodingInHeaders() will not
+     *        require memory for $message
      */
-    public static function CheckAndFixEncodingInHeaders($mail, $message) {
+    public static function CheckAndFixEncodingInHeaders(&$mail, $message) {
         $rawheaders = Utils::GetRawMailHeaders($mail);
         if ( !$rawheaders ) {
             return;
