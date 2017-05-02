@@ -1209,19 +1209,40 @@ class Utils {
      * get raw mail headers as key-value pair array
      *
      * @access public
-     * @param $mail
+     * @param &$mail: this is reference of the caller's $mail,
+     *                not copy. So the call to 
+     *                Utils::GetRawMailHeaders() will not require 
+     *                memory for $mail.       
      * @return string array
      */
-    public static function GetRawMailHeaders($mail) {
-        $mobj = new Mail_mimeDecode($mail);
-        $headersonly = $mobj->_parseHeaders($mail);
+    public static function GetRawMailHeaders(&$mail) {
+        // if no headers, return default headers
+        if ( !preg_match("/^(.*?)\r?\n\r?\n/s", $mail, $match) ) {
+            ZLog::Write(LOGLEVEL_DEBUG, "Utils::GetRawMailHeaders(): no header");
+            return FALSE;
+        }
+        $input = $match[1];
+        // if no headers, return default headers                                      ]
+        if ( $input == "" ) {
+            ZLog::Write(LOGLEVEL_DEBUG, "Utils::GetRawMailHeaders(): no header");
+            return FALSE;
+        }
+        // parse headers
+        $input = preg_replace("/\r?\n/", "\r\n", $input);
+        $input = preg_replace("/=\r\n(\t| )+/", '=', $input);
+        $input = preg_replace("/\r\n(\t| )+/", ' ', $input);
+        $headersonly = explode("\r\n", trim($input));
+        unset($input);
         $headers = array();
         foreach ( $headersonly as $value ) {
-            if ( $value["name"] === false ) {
+            if ( !preg_match("/^(.+):[ \t]*(.+)$/", $value, $match) ) {
                 continue;
             }
-            $headers[strtolower($value["name"])] = $value["value"];
+            $headers[strtolower($match[1])] = $match[2];
         }
+        unset($headersonly);
+        ZLog::Write(LOGLEVEL_DEBUG, sprintf("GetRawMailHeaders(): subject = %s", $headers["subject"]));
+        ZLog::Write(LOGLEVEL_DEBUG, sprintf("GetRawMailHeaders(): from = %s", $headers["from"]));
         return $headers;
     }
 
@@ -1238,6 +1259,22 @@ class Utils {
         if ( isset($string) && strpos($string, chr(0x1b).'$B') !== false ) {
             $string = mb_convert_encoding($string, "utf-8", "ISO-2022-JP-MS");
         }
+    }
+
+    /**
+     * set expected subject and from in utf-8 even if in wrong
+     * decoded
+     *
+     * @access public
+     * @param $mail, $message
+     */
+    public static function CheckAndFixEncodingInHeaders($mail, $message) {
+        $rawheaders = Utils::GetRawMailHeaders($mail);
+        if ( !$rawheaders ) {
+            return;
+        }
+        $message->headers["subject"] = Utils::ConvertRawHeader2Utf8($rawheaders["subject"], $message->headers["subject"]);
+        $message->headers["from"] = Utils::ConvertRawHeader2Utf8($rawheaders["from"], $message->headers["from"]);
     }
 }
 
