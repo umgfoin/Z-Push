@@ -1179,11 +1179,11 @@ class Utils {
     /**
      * if string is ISO-2022-JP, convert this into utf-8
      *
-     * @access public
+     * @access private
      * @param $nonencstr, $utf8str
      * @return string
      */
-    public static function ConvertRawHeader2Utf8($nonencstr, $utf8str) {
+    private static function ConvertRawHeader2Utf8($nonencstr, $utf8str) {
         if ( !isset($nonencstr) ) {
             return $utf8str;
         }
@@ -1208,14 +1208,14 @@ class Utils {
     /**
      * get raw mail headers as key-value pair array
      *
-     * @access public
+     * @access private
      * @param &$mail: this is reference of the caller's $mail,
      *                not copy. So the call to 
      *                Utils::GetRawMailHeaders() will not require 
      *                memory for $mail.       
      * @return string array
      */
-    public static function GetRawMailHeaders(&$mail) {
+    private static function GetRawMailHeaders(&$mail) {
         // if no headers, return default headers
         if ( !preg_match("/^(.*?)\r?\n\r?\n/s", $mail, $match) ) {
             ZLog::Write(LOGLEVEL_DEBUG, "Utils::GetRawMailHeaders(): no header");
