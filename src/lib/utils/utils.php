@@ -1219,13 +1219,13 @@ class Utils {
         // if no headers, return FALSE
         if ( !preg_match("/^(.*?)\r?\n\r?\n/s", $mail, $match) ) {
             ZLog::Write(LOGLEVEL_DEBUG, "Utils::GetRawMailHeaders(): no header");
-            return FALSE;
+            return false;
         }
         $input = $match[1];
         // if no headers, return FALSE
         if ( $input == "" ) {
             ZLog::Write(LOGLEVEL_DEBUG, "Utils::GetRawMailHeaders(): no header");
-            return FALSE;
+            return false;
         }
         // parse headers
         $input = preg_replace("/\r?\n/", "\r\n", $input);
