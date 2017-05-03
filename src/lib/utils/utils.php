@@ -1187,16 +1187,20 @@ class Utils {
         if ( !isset($nonencstr) ) {
             return $utf8str;
         }
+        // if php-imap option is not installed, there is no noconversion
+        if ( !function_exists("imap_mime_header_decode") ) {
+            return $utf8str;
+        }
         $isiso2022jp = false;
         $str = "";
-        foreach ( imap_mime_header_decode($nonencstr) as $val ) {
+        foreach ( @imap_mime_header_decode($nonencstr) as $val ) {
             if ( strtolower($val->charset) == "iso-2022-jp" ) {
                 $isiso2022jp = true;
-                $str .= mb_convert_encoding($val->text, "utf-8", "ISO-2022-JP-MS");
+                $str .= @mb_convert_encoding($val->text, "utf-8", "ISO-2022-JP-MS");
             } else if ( strtolower($val->charset) == "default" ) {
                 $str .= $val->text;
             } else {
-                $str .= mb_convert_encoding($val->text, "utf-8", $val->charset);
+                $str .= @mb_convert_encoding($val->text, "utf-8", $val->charset);
             }
         }
         if ( !$isiso2022jp ) {
