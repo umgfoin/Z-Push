@@ -1011,6 +1011,10 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
         $bodypreference = $contentparameters->GetBodyPreference(); /* fmbiete's contribution r1528, ZP-320 */
         ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->GetMessage('%s', '%s', '%s')", $folderid,  $id, implode(",", $bodypreference)));
 
+        # if body can be PLAIN or HTML and not MIME, and device is iOS, this is a call to get preview
+        $is_preview = $bodypreference == array(1, 2) and in_array(strtolower(Request::GetDeviceType()), array("ipad", "iphone", "ipod")) ;
+        ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->GetMessage is_preview = %d", $is_preview));
+
         $folderImapid = $this->getImapIdFromFolderId($folderid);
 
         $is_sent_folder = strcasecmp($folderImapid, $this->create_name_folder(IMAP_FOLDER_SENT)) == 0;
@@ -1065,6 +1069,18 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
                 }
             }
 
+            # if call for preview, get plain text body
+            if ( $is_preview ) {
+                $textBody = "";
+                Mail_mimeDecode::getBodyRecursive($message, "plain", $textBody, true);
+                $bpReturnType = SYNC_BODYPREFERENCE_PLAIN;
+                if ( strlen($textBody) == 0 ) {
+                    # if only HTML, convert HTML into PLAIN
+                    Mail_mimeDecode::getBodyRecursive($message, "html", $textBody, true);
+                    $textBody = strip_tags($textBody);
+                }
+            }
+            
             ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->GetMessage(): after thinking a bit we will use: %d", $bpReturnType));
 
 
