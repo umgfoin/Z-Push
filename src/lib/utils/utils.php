@@ -1192,10 +1192,20 @@ class Utils {
             return $utf8str;
         }
         $isiso2022jp = false;
+        $issamecharset = true;
+        $charset = NULL;
         $str = "";
+        $striso2022jp = "";
         foreach ( @imap_mime_header_decode($nonencstr) as $val ) {
+            if ( is_null($charset) ) {
+                $charset = strtolower($val->charset);
+            }
+            if ( $charset != strtolower($val->charset) ) {
+                $issamecharset = false;
+            }
             if ( strtolower($val->charset) == "iso-2022-jp" ) {
                 $isiso2022jp = true;
+                $striso2022jp .= $val->text;
                 $str .= @mb_convert_encoding($val->text, "utf-8", "ISO-2022-JP-MS");
             } else if ( strtolower($val->charset) == "default" ) {
                 $str .= $val->text;
@@ -1205,6 +1215,9 @@ class Utils {
         }
         if ( !$isiso2022jp ) {
             return $utf8str;
+        }
+        if ( $charset == 'iso-2022-jp' && $issamecharset ) {
+            $str = @mb_convert_encoding($striso2022jp, "utf-8", "ISO-2022-JP-MS");
         }
         return $str;
     }
