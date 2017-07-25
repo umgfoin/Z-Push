@@ -392,7 +392,7 @@ class ImportChangesICS implements IImportChanges {
         // set the PR_SOURCE_KEY if available or mark it as new message
         if($id) {
             list(, $sk) = Utils::SplitMessageId($id);
-            $props[PR_SOURCE_KEY] = hex2bin($sk);
+            $props[PR_SOURCE_KEY] = hex2bin(preg_replace('/[^A-Fa-f0-9]/','',$sk));
 
             // check if message is in the synchronization interval and/or shared+private
             if (!$this->isModificationAllowed($sk))
