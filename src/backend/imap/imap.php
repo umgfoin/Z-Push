@@ -1077,7 +1077,7 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
                 if ( strlen($textBody) == 0 ) {
                     # if only HTML, convert HTML into PLAIN
                     Mail_mimeDecode::getBodyRecursive($message, "html", $textBody, true);
-                    $textBody = strip_tags($textBody);
+                    $textBody = Utils::ConvertHtmlToText($textBody);
                 }
             }
             
