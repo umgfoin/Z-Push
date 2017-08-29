@@ -380,21 +380,35 @@ class Utils {
      *
      * If it's not possible to truncate properly, an empty string is returned
      *
-     * @param string $string - the string
-     * @param string $length - position where string should be cut
+     * @param string    $string     the string
+     * @param string    $length     position where string should be cut
+     * @param boolean   $htmlsafe   doesn't cut html tags in half, doesn't ensure correct html - default: false
+     *
      * @return string truncated string
      */
-    static public function Utf8_truncate($string, $length) {
+    static public function Utf8_truncate($string, $length, $htmlsafe = false) {
         // make sure length is always an interger
         $length = (int)$length;
 
-        if (strlen($string) <= $length)
-            return $string;
+        // if the input string is shorter then the trunction, make sure it's valid UTF-8!
+        if (strlen($string) <= $length) {
+            $length = strlen($string) - 1;
+        }
+
+        // The intent is not to cut HTML tags in half which causes displaying issues (see ZP-1240).
+        // The used method just tries to cut outside of tags, without checking tag validity and closing tags.
+        if ($htmlsafe) {
+            $offset = 0 - strlen($string) + $length;
+            $validPos = strrpos($string, "<", $offset);
+            if ($validPos > strrpos($string, ">", $offset)) {
+                $length = $validPos;
+            }
+        }
 
         while($length >= 0) {
-            if ((ord($string[$length]) < 0x80) || (ord($string[$length]) >= 0xC0))
+            if ((ord($string[$length]) < 0x80) || (ord($string[$length]) >= 0xC0)) {
                 return substr($string, 0, $length);
-
+            }
             $length--;
         }
         return "";
@@ -862,6 +876,7 @@ class Utils {
     /**
      * Checks if a file has the same owner and group as the parent directory.
      * If not, owner and group are fixed (being updated to the owner/group of the directory).
+     * If the given file is a special file (i.g., /dev/null, fifo), nothing is changed.
      * Function code contributed by Robert Scheck aka rsc.
      *
      * @param string $file
@@ -870,7 +885,7 @@ class Utils {
      * @return boolean
      */
     public static function FixFileOwner($file) {
-        if(posix_getuid() == 0 && file_exists($file)) {
+        if(posix_getuid() == 0 && is_file($file)) {
             $dir = dirname($file);
             $perm_dir = stat($dir);
             $perm_file = stat($file);
@@ -1265,6 +1280,9 @@ class Utils {
 
     /**
      * Check if the UTF-8 string has ISO-2022-JP esc seq 
+=======
+     * Check if the UTF-8 string has ISO-2022-JP esc seq
+>>>>>>> 18c88cd9bfeae83ea5ddb16905b32182cc332207
      * if so, it is ISO-2022-JP, not UTF-8 and convert it into UTF-8
      * string
      *
@@ -1319,13 +1337,14 @@ class Utils {
             $addrphrase = $struc->personal;
             if (isset($addrphrase) && strlen($addrphrase) > 0 && mb_detect_encoding($addrphrase, "UTF-8") != false && preg_match('/[^\x00-\x7F]/', $addrphrase) == 1) {
                 // phrase part is plain utf-8 text including non ascii characters
+                // convert this into mime-header-encoded text
                 $addrphrase = mb_encode_mimeheader($addrphrase);
             }
             if ( strlen($addrphrase) > 0 ) {
-                // phrase part is plain in pure ascii characters
+                // there is a phrase part in the address
                 $addrarray[] = $addrphrase . " " . " <" . $struc->mailbox . "@" . $struc->host . ">";
             } else {
-                // there is no phrase part.
+                // there is no phrase part in the address
                 $addrarray[] = $struc->mailbox . "@" . $struc->host;
             }
         }
