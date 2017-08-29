@@ -1011,7 +1011,7 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
         $bodypreference = $contentparameters->GetBodyPreference(); /* fmbiete's contribution r1528, ZP-320 */
         ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->GetMessage('%s', '%s', '%s')", $folderid,  $id, implode(",", $bodypreference)));
 
-        # if body can be PLAIN or HTML and not MIME, and device is iOS, this is a call to get preview
+        // if body can be PLAIN or HTML and not MIME, and device is iOS, this is a call to get preview
         $is_preview = $bodypreference == array(1, 2) and in_array(strtolower(Request::GetDeviceType()), array("ipad", "iphone", "ipod")) ;
         ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendIMAP->GetMessage is_preview = %d", $is_preview));
 
@@ -1069,13 +1069,13 @@ class BackendIMAP extends BackendDiff implements ISearchProvider {
                 }
             }
 
-            # if call for preview, get plain text body
+            // if call for preview, get plain text body
             if ( $is_preview ) {
                 $textBody = "";
                 Mail_mimeDecode::getBodyRecursive($message, "plain", $textBody, true);
                 $bpReturnType = SYNC_BODYPREFERENCE_PLAIN;
                 if ( strlen($textBody) == 0 ) {
-                    # if only HTML, convert HTML into PLAIN
+                    // if only HTML, convert HTML into PLAIN
                     Mail_mimeDecode::getBodyRecursive($message, "html", $textBody, true);
                     $textBody = Utils::ConvertHtmlToText($textBody);
                 }
