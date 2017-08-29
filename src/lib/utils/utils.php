@@ -1300,6 +1300,40 @@ class Utils {
         $message->headers["subject"] = Utils::ConvertRawHeader2Utf8($rawheaders["subject"], $message->headers["subject"]);
         $message->headers["from"] = Utils::ConvertRawHeader2Utf8($rawheaders["from"], $message->headers["from"]);
     }
+
+    /**
+     * Get to or cc header in mime-header-encoded UTF-8 text.
+     *
+     * @access public
+     * @param $addrstruncs  
+     *        $addrstruncts is a return value of
+     *        Mail_RFC822->parseAddressList(). Convert this into
+     *        plain text. If the phrase part is in plain UTF-8,
+     *        convert this into mime-header encoded UTF-8
+     */
+    public static function CheckAndFixEncodingInHeadersOfSentMail($addrstructs) {
+        mb_internal_encoding("UTF-8");
+        $addrarray = array();
+        // process each address
+        foreach ( $addrstructs as $struc ) {
+            $addrphrase = $struc->personal;
+            if (isset($addrphrase) && strlen($addrphrase) > 0 && mb_detect_encoding($addrphrase, "UTF-8") != false && preg_match('/[^\x00-\x7F]/', $addrphrase) == 1) {
+                // phrase part is plain utf-8 text including non ascii characters
+                $addrphrase = mb_encode_mimeheader($addrphrase);
+            }
+            if ( strlen($addrphrase) > 0 ) {
+                // phrase part is plain in pure ascii characters
+                $addrarray[] = $addrphrase . " " . " <" . $struc->mailbox . "@" . $struc->host . ">";
+            } else {
+                // there is no phrase part.
+                $addrarray[] = $struc->mailbox . "@" . $struc->host;
+            }
+        }
+        // combine each address into a string
+        $addresses = implode(",", $addrarray);
+        ZLog::Write(LOGLEVEL_DEBUG, sprintf("Utils::CheckAndFixEncodingInHeadersOfSentMail(): addresses %s", $addresses));
+        return $addresses;
+    }
 }
 
 
