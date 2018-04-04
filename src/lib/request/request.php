@@ -182,7 +182,12 @@ class Request {
         // authUser & authPassword are unfiltered!
         // split username & domain if received as one
         if (isset($_SERVER['PHP_AUTH_USER'])) {
-            list(self::$authUserString, self::$authDomain) = Utils::SplitDomainUser($_SERVER['PHP_AUTH_USER']);
+            if (!strpos($_SERVER['PHP_AUTH_USER'], "\\") && strpos($_SERVER['PHP_AUTH_USER'], "@")) {
+                list(self::$authUserString, self::$authDomain) = explode("@", $_SERVER['PHP_AUTH_USER']);
+            }
+            else {
+                list(self::$authUserString, self::$authDomain) = Utils::SplitDomainUser($_SERVER['PHP_AUTH_USER']);
+            }
             self::$authPassword = (isset($_SERVER['PHP_AUTH_PW']))?$_SERVER['PHP_AUTH_PW'] : "";
         }
 
