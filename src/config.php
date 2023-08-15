@@ -35,12 +35,15 @@
     // Try to set unlimited timeout
     define('SCRIPT_TIMEOUT', 0);
 
+    // This should be solved on THE webserver level if there are proxies
+    // between mobile client and Z-Push.
+    // IMPORTANT: This setting will be deprecated in Z-Push 2.7.0.
     // Use a custom header to determinate the remote IP of a client.
     // By default, the server provided REMOTE_ADDR is used. If the header here set
     // is available, the provided value will be used, else REMOTE_ADDR is maintained.
     // set to false to disable this behaviour.
     // common values: 'HTTP_X_FORWARDED_FOR', 'HTTP_X_REAL_IP' (casing is ignored)
-    define('USE_CUSTOM_REMOTE_IP_HEADER', 'HTTP_X_REAL_IP');
+    define('USE_CUSTOM_REMOTE_IP_HEADER', false);
 
     // When using client certificates, we can check if the login sent matches the owner of the certificate.
     // This setting specifies the owner parameter in the certificate to look at.
@@ -74,6 +77,12 @@
  *  using the memcache provider for multi-host environments.
  *  When another implementation should be used, the class can be set here explicitly.
  *  If empty Z-Push will try to use available providers.
+
+ *  Possible values:
+ *  IpcSharedMemoryProvider - default. Requires z-push-ipc-sharedmemory package.
+ *  IpcMemcachedProvider    - requires z-push-ipc-memcached package. It is necessary to set up
+ *                            memcached server before (it won't be installed by z-push-ipc-memcached).
+ *  IpcWincacheProvider     - for windows systems.
  */
     define('IPC_PROVIDER', '');
 
@@ -103,7 +112,7 @@
  *  LOGAUTHFAIL is logged to the LOGBACKEND.
  */
     define('LOGBACKEND', 'filelog');
-    define('LOGLEVEL', LOGLEVEL_WBXML);
+    define('LOGLEVEL', LOGLEVEL_INFO);
     define('LOGAUTHFAIL', false);
 
     // To save e.g. WBXML data only for selected users, add the usernames to the array
@@ -269,7 +278,24 @@
 /**********************************************************************************
  *  Backend settings
  */
-    // the backend data provider
+    // The backend data provider.
+    // Leave this value empty and Z-Push will autoload a backend. The sequence of autoload is:
+    // BackendKopano, BackendCombined, BackendIMAP, BackendVCardDir, BackendMaildir.
+    // If BackendKopano is not installed, Z-Push will load BackendCombined. If BackendCombined
+    // also is not installed, Z-Push will load BackendIMAP and so on.
+    // If you prefer explicitly configure a backend provider, currently possible values are:
+    // BackendKopano     -  to use with the Kopano groupware. Syncs emails, calendar items,
+    //                      contacts, tasks and notes or any combination of the listed items.
+    // BackendCombined   -  combine multiple backends for different items, e.g.
+    //                      BackendIMAP for emails, BackendCalDAV for calendar items,
+    //                      BackendCardDAV for contacts etc. You can configure what backend
+    //                      syncs which items in /etc/combined.conf.php.
+    // BackendIMAP       -  to sync emails with an IMAP server.
+    // BackendCalDAV     -  to sync calendar items and / or tasks with a CalDAV server.
+    // BackendCardDAV    -  to sync contacts with a CardDAV server.
+    // BackendMaildir    -  to sync emails from a Maildir.
+    // BackendStickyNote -  to sync notes with a Postgres server.
+    // BackendVCardDir   -  to sync contacts with vcard folder.
     define('BACKEND_PROVIDER', '');
 
 /**********************************************************************************
@@ -356,6 +382,9 @@
  *                          When replying in this folder, automatically do Send-As
  *                      DeviceManager::FLD_FLAGS_CALENDARREMINDERS
  *                          If set, Outlook shows reminders for these shares with KOE
+ *                      DeviceManager::FLD_FLAGS_NOREADONLYNOTIFY
+ *                          If set, Z-Push won't send notification emails for changes
+ *                          if the folder is read-only
  *
  *  Additional notes:
  *  - on Kopano systems use backend/kopano/listfolders.php script to get a list

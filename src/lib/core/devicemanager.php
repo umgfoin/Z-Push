@@ -48,6 +48,7 @@ class DeviceManager {
     const FLD_FLAGS_SENDASOWNER = 1;
     const FLD_FLAGS_TRACKSHARENAME = 2;
     const FLD_FLAGS_CALENDARREMINDERS = 4;
+    const FLD_FLAGS_NOREADONLYNOTIFY = 8;
 
     private $device;
     private $deviceHash;
@@ -498,6 +499,12 @@ class DeviceManager {
      */
     public function GetAdditionalUserSyncFolders() {
         $folders = array();
+
+        // In impersonated stores, no additional folders will be synchronized
+        if (Request::GetImpersonatedUser()) {
+            return $folders;
+        }
+
         foreach($this->device->GetAdditionalFolders() as $df) {
             if (!isset($df['flags'])) {
                 $df['flags'] = 0;
@@ -549,7 +556,7 @@ class DeviceManager {
      * @access public
      * @return boolean|string
      */
-    public function GetAdditionalUserSyncFolderStore($folderid) {
+    public function GetAdditionalUserSyncFolder($folderid) {
         // is this the KOE GAB folder?
         if ($folderid && $folderid === $this->GetKoeGabBackendFolderId()) {
             return KOE_GAB_STORE;
@@ -557,7 +564,7 @@ class DeviceManager {
 
         $f = $this->device->GetAdditionalFolder($folderid);
         if ($f) {
-            return $f['store'];
+            return $f;
         }
 
         return false;
@@ -639,8 +646,17 @@ class DeviceManager {
         $this->setLatestFolder($folderid);
 
         // detect if this is a loop condition
-        if ($this->loopdetection->Detect($folderid, $uuid, $statecounter, $items, $queuedmessages))
-            $items = ($items == 0) ? 0: 1+($this->loopdetection->IgnoreNextMessage(false)?1:0) ;
+        $loop = $this->loopdetection->Detect($folderid, $uuid, $statecounter, $items, $queuedmessages);
+        if ($loop !== false) {
+            if ($loop === true) {
+                $items = ($items == 0) ? 0: 1+($this->loopdetection->IgnoreNextMessage(false)?1:0) ;
+            }
+            else {
+                // we got a new suggested window size
+                $items = $loop;
+                ZLog::Write(LOGLEVEL_DEBUG, sprintf("Mobile loop pre stage detected! Forcing smaller window size of %d before entering loop detection mode", $items));
+            }
+        }
 
         if ($items >= 0 && $items <= 2)
             ZLog::Write(LOGLEVEL_WARN, sprintf("Mobile loop detected! Messages sent to the mobile will be restricted to %d items in order to identify the conflict", $items));
@@ -698,7 +714,8 @@ class DeviceManager {
      * @access public
      * @return int
      */
-    public function GetFilterType($folderid) {
+    public function GetFilterType($folderid, $backendFolderId) {
+        global $specialSyncFilter;
         // either globally configured SYNC_FILTERTIME_MAX or ALL (no limit)
         $maxAllowed = (defined('SYNC_FILTERTIME_MAX') && SYNC_FILTERTIME_MAX > SYNC_FILTERTYPE_ALL) ? SYNC_FILTERTIME_MAX : SYNC_FILTERTYPE_ALL;
 
@@ -708,6 +725,44 @@ class DeviceManager {
         // ALL has a value of 0, all limitations have higher integer values, see SYNC_FILTERTYPE_ALL definition
         if ($maxDevice !== false && $maxDevice > SYNC_FILTERTYPE_ALL && ($maxAllowed == SYNC_FILTERTYPE_ALL || $maxDevice < $maxAllowed)) {
             $maxAllowed = $maxDevice;
+        }
+
+        if (is_array($specialSyncFilter)) {
+            $store = ZPush::GetAdditionalSyncFolderStore($backendFolderId);
+            // the store is only available when this is a shared folder (but might also be statically configured)
+            if ($store) {
+                $origin = Utils::GetFolderOriginFromId($folderid);
+                // do not limit when the owner or impersonated user is synching!
+                if ($origin == DeviceManager::FLD_ORIGIN_USER || $origin == DeviceManager::FLD_ORIGIN_IMPERSONATED) {
+                    ZLog::Write(LOGLEVEL_DEBUG, "Not checking for specific sync limit as this is the owner/impersonated user.");
+                }
+                else {
+                    $spKey = false;
+                    $spFilter = false;
+                    // 1. step: check if there is a general limitation for the store
+                    if (array_key_exists($store, $specialSyncFilter)) {
+                        $spFilter = $specialSyncFilter[$store];
+                        ZLog::Write(LOGLEVEL_DEBUG, sprintf("Limit sync due to configured limitation on the store: '%s': %s",$store, $spFilter));
+                    }
+
+                    // 2. step: check if there is a limitation for the hashed ID (for shared/configured stores)
+                    $spKey= $store .'/'. $folderid;
+                    if (array_key_exists($spKey, $specialSyncFilter)) {
+                        $spFilter = $specialSyncFilter[$spKey];
+                        ZLog::Write(LOGLEVEL_DEBUG, sprintf("Limit sync due to configured limitation on the folder: '%s': %s", $spKey, $spFilter));
+                    }
+
+                    // 3. step: check if there is a limitation for the backendId
+                    $spKey= $store .'/'. $backendFolderId;
+                    if (array_key_exists($spKey, $specialSyncFilter)) {
+                        $spFilter = $specialSyncFilter[$spKey];
+                        ZLog::Write(LOGLEVEL_DEBUG, sprintf("Limit sync due to configured limitation on the folder: '%s': %s", $spKey, $spFilter));
+                    }
+                    if ($spFilter) {
+                        $maxAllowed = $spFilter;
+                    }
+                }
+            }
         }
 
         return $maxAllowed;
@@ -946,7 +1001,7 @@ class DeviceManager {
         // status available or just initialized
         if (isset($currentStatus[ASDevice::FOLDERSYNCSTATUS]) || $statusflag == self::FLD_SYNC_INITIALIZED) {
             // only update if there is a change
-            if ($statusflag !== $currentStatus[ASDevice::FOLDERSYNCSTATUS] && $statusflag != self::FLD_SYNC_COMPLETED) {
+            if ((!$currentStatus || $statusflag !== $currentStatus[ASDevice::FOLDERSYNCSTATUS]) && $statusflag != self::FLD_SYNC_COMPLETED) {
                 $this->device->SetFolderSyncStatus($folderid, array(ASDevice::FOLDERSYNCSTATUS => $statusflag));
                 ZLog::Write(LOGLEVEL_DEBUG, sprintf("SetFolderSyncStatus(): set %s for %s", $statusflag, $folderid));
             }
@@ -958,6 +1013,26 @@ class DeviceManager {
         }
 
         return true;
+    }
+
+    /**
+     * Indicates if a folder is synchronizing by the saved status.
+     *
+     * @param string     $folderid          folder id
+     *
+     * @access public
+     * @return boolean
+     */
+    public function HasFolderSyncStatus($folderid) {
+        $currentStatus = $this->device->GetFolderSyncStatus($folderid);
+
+        // status available ?
+        $hasStatus = isset($currentStatus[ASDevice::FOLDERSYNCSTATUS]);
+        if ($hasStatus) {
+            ZLog::Write(LOGLEVEL_DEBUG, sprintf("HasFolderSyncStatus(): saved folder status for %s: %s", $folderid, $currentStatus[ASDevice::FOLDERSYNCSTATUS]));
+        }
+
+        return $hasStatus;
     }
 
     /**
@@ -1271,5 +1346,15 @@ class DeviceManager {
             $folder = Utils::ChangeFolderToTypeUnknownForKoe($folder);
         }
         return $folder;
+    }
+
+    /**
+     * Returns the device id.
+     *
+     * @access public
+     * @return string
+     */
+    public function GetDevid() {
+        return $this->devid;
     }
 }

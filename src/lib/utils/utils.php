@@ -335,6 +335,9 @@ class Utils {
             case SYNC_FILTERTYPE_6MONTHS:
                 $back = 60 * 60 * 24 * 31 * 6;
                 break;
+            case SYNC_FILTERTYPE_1YEAR:
+                $back = 60 * 60 * 24 * 366;
+                break;
             default:
                 $back = false;
         }
@@ -583,7 +586,7 @@ class Utils {
      * @return boolean
      */
     static public function CheckEmail($email) {
-        return (bool) preg_match('#([a-zA-Z0-9_\-])+(\.([a-zA-Z0-9_\-])+)*@((\[(((([0-1])?([0-9])?[0-9])|(2[0-4][0-9])|(2[0-5][0-5])))\.(((([0-1])?([0-9])?[0-9])|(2[0-4][0-9])|(2[0-5][0-5])))\.(((([0-1])?([0-9])?[0-9])|(2[0-4][0-9])|(2[0-5][0-5])))\.(((([0-1])?([0-9])?[0-9])|(2[0-4][0-9])|(2[0-5][0-5]))\]))|((([a-zA-Z0-9])+(([\-])+([a-zA-Z0-9])+)*\.)+([a-zA-Z])+(([\-])+([a-zA-Z0-9])+)*)|localhost)#', $email);
+        return strpos($email, '@') !== false ? true : false;
     }
 
     /**
@@ -894,14 +897,15 @@ class Utils {
             $perm_dir = stat($dir);
             $perm_file = stat($file);
 
-            if ($perm_file['uid'] == 0 && $perm_dir['uid'] == 0) {
+            if ($perm_file['uid'] == 0 && $perm_dir['uid'] == 0 && $perm_dir['gid'] == 0) {
                 unlink($file);
-                throw new FatalException("FixFileOwner: $dir must be owned by the nginx/apache/php user instead of root");
+                throw new FatalException("FixFileOwner: $dir must be owned by the nginx/apache/php user instead of root for debian based systems and by root:z-push for RHEL-based systems");
             }
 
             if($perm_dir['uid'] !== $perm_file['uid'] || $perm_dir['gid'] !== $perm_file['gid']) {
                 chown($file, $perm_dir['uid']);
                 chgrp($file, $perm_dir['gid']);
+                chmod($file, 0664);
             }
         }
         return true;
@@ -951,18 +955,56 @@ class Utils {
      *
      * @param string $filename
      * @param string $data
+     * @param boolean $writeCheck (opt) perform a byte check of the written data
      * @return boolean|int
      */
-    public static function SafePutContents($filename, $data) {
+    public static function SafePutContents($filename, $data, $writeCheck = false) {
         //put the 'tmp' as a prefix (and not suffix) so all glob call will not see temp files
         $tmp = dirname($filename).DIRECTORY_SEPARATOR.'tmp-'.getmypid().'-'.basename($filename);
-        if (($res = file_put_contents($tmp, $data)) !== false) {
-            self::FixFileOwner($tmp);
-            if (rename($tmp, $filename) !== true)
-                $res = false;
-        }
 
-        return $res;
+        //number of attempts
+        $attempts = (defined('FILE_STATE_ATTEMPTS') ? FILE_STATE_ATTEMPTS : 3);
+        //ms to sleep between attempts
+        $sleep_time = (defined('FILE_STATE_SLEEP') ? FILE_STATE_SLEEP : 100);
+        $i = 1;
+        while (($i <= $attempts) && (($bytes = file_put_contents($tmp, $data)) === false)) {
+            ZLog::Write(LOGLEVEL_WARN, sprintf("Utils->SafePutContents: Failed on writing data in tmp filename - attempt: %d - filename: %s", $i, $tmp));
+            $i++;
+            usleep($sleep_time * 1000);
+        }
+        if ($i > $attempts)
+            ZLog::Write(LOGLEVEL_FATAL, sprintf("Utils->SafePutContents: Unable to write data in tmp filename '%s' after %s retries",$tmp, --$i));
+        if ($bytes !== false){
+            self::FixFileOwner($tmp);
+            $i = 1;
+            while (($i <= $attempts) && (($res = rename($tmp, $filename)) !== true)) {
+                ZLog::Write(LOGLEVEL_WARN, sprintf("Utils->SafePutContents: Failed on renaming tmp filename - attempt: %d - filename: %s", $i, $tmp));
+                $i++;
+                usleep($sleep_time * 1000);
+            }
+            if ($i > $attempts)
+                ZLog::Write(LOGLEVEL_FATAL, sprintf("Utils->SafePutContents: Unable to rename tmp filename '%s' after %s retries",$tmp, --$i));
+            if ($res !== true) $bytes = false;
+        }
+        // verify the content of the just written file
+        if ($writeCheck === true) {
+            ZLog::Write(LOGLEVEL_DEBUG, sprintf("Utils->SafePutContents: Write check checking written content of %d bytes for filename: %s",$bytes, $filename));
+            $attempts = (defined('FILE_STATE_ATTEMPTS') ? FILE_STATE_ATTEMPTS : 3);
+            $sleep_time = (defined('FILE_STATE_SLEEP') ? FILE_STATE_SLEEP : 100);
+            $i = 1;
+            while (($i <= $attempts) && (strcmp($bytesChecked = self::SafeGetContents($filename, __FUNCTION__, true), $data) !== 0)) {
+                ZLog::Write(LOGLEVEL_WARN, sprintf("Utils->SafePutContents: Write check failed for filename '%s' different content. Expected %d bytes to check found %d bytes - attempt: %d", $filename, $bytes, strlen($bytesChecked), $i));
+                $i++;
+                usleep($sleep_time * 1000);
+            }
+            if ($i > $attempts) {
+                ZLog::Write(LOGLEVEL_FATAL, sprintf("Utils->SafePutContents: Write check failed for filename '%s' different content. Expected %d bytes to check found %d bytes after %d retries", $filename, $bytes, strlen($bytesChecked), --$i));
+            } else {
+                ZLog::Write(LOGLEVEL_DEBUG, sprintf("Utils->SafePutContents: Write correctly checked %d bytes for filename: %s",strlen($bytesChecked), $filename));
+            }
+            $bytes = strlen($bytesChecked);
+        }
+        return $bytes;
     }
 
     /**
@@ -1309,8 +1351,8 @@ class Utils {
      * Get to or cc header in mime-header-encoded UTF-8 text.
      *
      * @access public
-     * @param $addrstruncs
-     *        $addrstruncts is a return value of
+     * @param $addrstructs
+     *        $addrstructs is a return value of
      *        Mail_RFC822->parseAddressList(). Convert this into
      *        plain text. If the phrase part is in plain UTF-8,
      *        convert this into mime-header encoded UTF-8
@@ -1319,8 +1361,8 @@ class Utils {
         mb_internal_encoding("UTF-8");
         $addrarray = array();
         // process each address
-        foreach ( $addrstructs as $struc ) {
-            $addrphrase = $struc->personal;
+        foreach ( $addrstructs as $addrstruct ) {
+            $addrphrase = $addrstruct->personal;
             if (isset($addrphrase) && strlen($addrphrase) > 0 && mb_detect_encoding($addrphrase, "UTF-8") != false && preg_match('/[^\x00-\x7F]/', $addrphrase) == 1) {
                 // phrase part is plain utf-8 text including non ascii characters
                 // convert ths into mime-header-encoded text
@@ -1328,10 +1370,10 @@ class Utils {
             }
             if ( strlen($addrphrase) > 0 ) {
                 // there is a phrase part in the address
-                $addrarray[] = $addrphrase . " " . " <" . $struc->mailbox . "@" . $struc->host . ">";
+                $addrarray[] = $addrphrase . " <" . $addrstruct->mailbox . "@" . $addrstruct->host . ">";
             } else {
                 // there is no phrase part in the address
-                $addrarray[] = $struc->mailbox . "@" . $struc->host;
+                $addrarray[] = $addrstruct->mailbox . "@" . $addrstruct->host;
             }
         }
         // combine each address into a string
@@ -1361,12 +1403,93 @@ class Utils {
         if (!$rawheaders) {
             return;
         }
-        $message->headers["subject"] = Utils::convertRawHeader2Utf8($rawheaders["subject"], $message->headers["subject"]);
+        $message->headers["subject"] = isset($message->headers["subject"]) ? Utils::convertRawHeader2Utf8($rawheaders["subject"], $message->headers["subject"]) : "";
         $message->headers["from"] = Utils::convertRawHeader2Utf8($rawheaders["from"], $message->headers["from"]);
     }
+
+    /**
+     * Tries to load the content of a file from disk with retries in case of file system returns an empty file.
+     * If $unserialize set true, in case of non empty files it tries to unserialize them. 
+     *
+     * @param $filename
+     *        $filename is the name of the file to be opened
+     *
+     * @param $functName
+     *        $functName is the name of the caller function. Usefull to be printed into the log file
+     *
+     * @param $suppressWarnings
+     *        $suppressWarnings boolean. True if file_get_contents function has to be called with suppress warnings enabled, False otherwise
+     *
+     * @param $unserialize
+     *        $unserialize boolean. True to return unserialized read data, false otherwise.
+     *
+     * @access private
+     * @return string
+     */
+    public static function SafeGetContents($filename, $functName, $suppressWarnings, $unserialize = false) {
+        $attempts = (defined('FILE_STATE_ATTEMPTS') ? FILE_STATE_ATTEMPTS : 3);
+        $sleep_time = (defined('FILE_STATE_SLEEP') ? FILE_STATE_SLEEP : 100);
+        $unserialize_attempts_max = (defined('FILE_STATE_UNSERIALIZE_ATTEMPTS') ? FILE_STATE_UNSERIALIZE_ATTEMPTS : 1);
+        $unserialize_attempt = 0;
+        $contents = false;
+        do {
+            if ($unserialize_attempt > 0) {
+                ZLog::Write(LOGLEVEL_WARN, sprintf("FileStateMachine->%s(): Failed on unserializing filename '%s' - attempt: %d", $functName, $filename, $unserialize_attempt));
+            }
+            if ($unserialize_attempt === $unserialize_attempts_max) {
+                break;
+            }
+            $i = 1;
+            while (($i <= $attempts) && (($filecontents = ($suppressWarnings ? @file_get_contents($filename) : file_get_contents($filename))) === '')) {
+                ZLog::Write(LOGLEVEL_WARN, sprintf("FileStateMachine->%s(): Failed on reading filename '%s' - attempt: %d", $functName, $filename, $i));
+                $i++;
+                usleep($sleep_time * 1000);
+            }
+            if ($i > $attempts) {
+                ZLog::Write(LOGLEVEL_FATAL, sprintf("FileStateMachine->%s(): Unable to read filename '%s' after %d attempts",$functName, $filename, --$i));
+                if ($unserialize !== true ) {
+                    return $filecontents;
+                }
+                break;
+            } else {
+                if ($unserialize !== true ) {
+                    return $filecontents;
+                }
+                $unserialize_attempt ++;
+            }
+        } while ( ($filecontents !== false) && (($contents = unserialize($filecontents)) === false));
+
+        if ($contents === false && $filecontents !== '' && $filecontents !== false) {
+            ZLog::Write(LOGLEVEL_FATAL, sprintf("FileStateMachine->%s():Unable to unserialize filename '%s' after %d attempts", $functName, $filename, $unserialize_attempt));
+        }
+
+        return $contents;
+    }
+
+    /**
+     * Creates a Compact DateTime from a UTC Timestamp - Formats used for ActiveSync yyyyMMddTHHmmSSZ and yyyy-MM-ddTHH:mm:SS.000Z
+     *
+     * @param timestamp    $ts
+	 *
+	 * @param string       $format
+     *
+     * @access public
+     * @return string
+     */
+    public static function FormatDateUtc($ts,$format) {
+
+        $dateFormatUtc = datefmt_create(
+            'en_US',
+            IntlDateFormatter::FULL,
+            IntlDateFormatter::FULL,
+            'UTC',
+            IntlDateFormatter::GREGORIAN, 
+            $format
+        );
+        return datefmt_format($dateFormatUtc, $ts);
+    }
+
 }
-
-
 
 // TODO Win1252/UTF8 functions are deprecated and will be removed sometime
 //if the ICS backend is loaded in CombinedBackend and Zarafa > 7

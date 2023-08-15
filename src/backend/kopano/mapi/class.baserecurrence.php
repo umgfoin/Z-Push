@@ -838,11 +838,12 @@
                             }else {
                                 // Check or you exist in the right month
 
+                                $dayofweek = gmdate("w", $monthbegindow);
                                 for($i = 0; $i < 7; $i++) {
-                                    if($nday == 5 && (1<<( (gmdate("w", $monthbegindow)-$i)%7) ) & $weekdays) {
+                                    if($nday == 5 && (($dayofweek-$i)%7 >= 0) && (1<<( ($dayofweek-$i)%7) ) & $weekdays) {
                                         $day = gmdate("j", $monthbegindow) - $i;
                                         break;
-                                    }else if($nday != 5 && (1<<( (gmdate("w", $monthbegindow )+$i)%7) ) & $weekdays) {
+                                    }else if($nday != 5 && (1<<( ($dayofweek+$i)%7) ) & $weekdays) {
                                         $day = (($nday-1)*7) + ($i+1);
                                         break;
                                     }
@@ -879,11 +880,12 @@
 
                             $day = 0;
                             // Set start on the right day
+                            $dayofweek = gmdate("w", $monthbegindow);
                             for($i = 0; $i < 7; $i++) {
-                                if($nday == 5 && (1<<( (gmdate("w", $monthbegindow )-$i)%7) ) & $weekdays) {
+                                if($nday == 5 && (($dayofweek-$i)%7) >= 0&& (1<<(($dayofweek-$i)%7) ) & $weekdays) {
                                     $day = $i;
                                     break;
-                                }else if($nday != 5 && (1<<( (gmdate("w", $monthbegindow )+$i)%7) ) & $weekdays) {
+                                }else if($nday != 5 && (1<<( ($dayofweek+$i)%7) ) & $weekdays) {
                                     $day = ($nday - 1) * 7 + ($i+1);
                                     break;
                                 }
@@ -1123,12 +1125,12 @@
                                         // Set date on the first day of the last month
                                         $occenddate -= (gmdate("j", $occenddate )-1) * 24 * 60 * 60;
                                     }
-
+                                    $dayofweek = gmdate("w", $occenddate);
                                     for($i = 0; $i < 7; $i++) {
-                                        if( $nday == 5 && (1<<( (gmdate("w", $occenddate)-$i)%7) ) & $weekdays) {
+                                        if($nday == 5 && (($dayofweek-$i)%7) >= 0&& (1<<(($dayofweek-$i)%7) ) & $weekdays) {
                                             $occenddate -= $i * 24 * 60 * 60;
                                             break;
-                                        }else if($nday != 5 && (1<<( (gmdate("w", $occenddate)+$i)%7) ) & $weekdays) {
+                                        }else if($nday != 5 && (1<<(($dayofweek+$i)%7) ) & $weekdays) {
                                             $occenddate +=  ($i + (($nday-1) *7)) * 24 * 60 * 60;
                                             break;
                                         }
@@ -1760,7 +1762,7 @@
                                 // keep the track of no. of time correct selection pattern(like 2nd weekday, 4th fiday, etc.)is matched
                                 $ndaycounter = 0;
                                 // Find matching weekday in this month
-                                for($day = 0; $day < $this->daysInMonth($now, 1); $day++)
+                                for($day = 0, $total = $this->daysInMonth($now, 1); $day < $total; $day++)
                                 {
                                     $daynow = $now + $day * 60 * 60 * 24;
                                     $nowtime = $this->gmtime($daynow); // Get the weekday of the current day

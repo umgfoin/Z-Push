@@ -77,6 +77,9 @@ class ItemOperations extends RequestProcessor {
             WBXMLDecoder::ResetInWhile("itemOperationsOperation");
             while(WBXMLDecoder::InWhile("itemOperationsOperation")) {
                 if ($fetch) {
+                    // Save all OPTIONS into a ContentParameters object
+                    $operation["cpo"] = new ContentParameters();
+
                     if(self::$decoder->getElementStartTag(SYNC_ITEMOPERATIONS_STORE)) {
                         $operation['store'] = self::$decoder->getElementContent();
                         if(!self::$decoder->getElementEndTag())
@@ -116,8 +119,6 @@ class ItemOperations extends RequestProcessor {
                         //bodypartpreference
                         //rm:RightsManagementSupport
 
-                        // Save all OPTIONS into a ContentParameters object
-                        $operation["cpo"] = new ContentParameters();
                         WBXMLDecoder::ResetInWhile("itemOperationsOptions");
                         while(WBXMLDecoder::InWhile("itemOperationsOptions")) {
                             while (self::$decoder->getElementStartTag(SYNC_AIRSYNCBASE_BODYPREFERENCE)) {
@@ -371,6 +372,11 @@ class ItemOperations extends RequestProcessor {
                         self::$topCollector->AnnounceInformation("Streaming data");
 
                         self::$encoder->startTag(SYNC_ITEMOPERATIONS_PROPERTIES);
+                        if (isset($operation['range'])) {
+                            self::$encoder->startTag(SYNC_ITEMOPERATIONS_RANGE);
+                            self::$encoder->content($operation['range']);
+                            self::$encoder->endTag(); // SYNC_ITEMOPERATIONS_RANGE
+                        }
                         $data->Encode(self::$encoder);
                         self::$encoder->endTag(); //SYNC_ITEMOPERATIONS_PROPERTIES
                     }

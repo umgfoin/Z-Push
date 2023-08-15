@@ -438,6 +438,7 @@ class BackendCombined extends Backend implements ISearchProvider {
      * @access public
      * @return array
      */
+
     public function ChangesSink($timeout = 30) {
         ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCombined->ChangesSink(%d)", $timeout));
 
@@ -445,17 +446,25 @@ class BackendCombined extends Backend implements ISearchProvider {
         if ($this->numberChangesSink == 0) {
             ZLog::Write(LOGLEVEL_DEBUG, "BackendCombined doesn't include any Sinkable backends");
         } else {
-            $time_each = $timeout / $this->numberChangesSink;
+            $stopat = time() + $timeout - 1;
+
             foreach ($this->backends as $i => $b) {
                 if ($this->backends[$i]->HasChangesSink()) {
-                    ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCombined->ChangesSink - Calling in '%s' with %d", get_class($b), $time_each));
+                    ZLog::Write(LOGLEVEL_DEBUG, sprintf("BackendCombined->ChangesSink - Calling in '%s'", get_class($b)));
 
-                    $notifications_backend = $this->backends[$i]->ChangesSink($time_each);
-                    //preppend backend delimiter
+                    $notifications_backend = $this->backends[$i]->ChangesSink(1);
+                    // prepend backend delimiter
                     for ($c = 0; $c < count($notifications_backend); $c++) {
                         $notifications_backend[$c] = $i . $this->config['delimiter'] . $notifications_backend[$c];
                     }
                     $notifications = array_merge($notifications, $notifications_backend);
+                }
+            }
+
+            // If nothing changed, wait until timeout
+            if (empty($notifications)) {
+                while ($stopat > time()) {
+                    sleep(1);
                 }
             }
         }
@@ -665,5 +674,23 @@ class BackendCombined extends Backend implements ISearchProvider {
         ZLog::Write(LOGLEVEL_DEBUG, sprintf("Combined->getSearchBackend('%s') No support found!", $searchtype));
 
         return false;
+    }
+
+    /**
+     * Returns the email address and the display name of the user. Used by autodiscover and caldav.
+     *
+     * @param string        $username           The username
+     *
+     * @access public
+     * @return Array
+     */
+    public function GetUserDetails($username) {
+        // Find a backend that can provide the information
+        foreach ($this->backends as $backend) {
+            if (method_exists($backend, "GetUserDetails")) {
+                return $backend->GetUserDetails($username);
+            }
+        }
+        return parent::GetUserDetails($username);
     }
 }

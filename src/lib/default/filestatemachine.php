@@ -116,10 +116,8 @@ class FileStateMachine implements IStateMachine {
         $filename = $this->getFullFilePath($devid, $type, $key, $counter);
 
         if(file_exists($filename)) {
-            $contents = file_get_contents($filename);
-            $bytes = strlen($contents);
-            ZLog::Write(LOGLEVEL_DEBUG, sprintf("FileStateMachine->GetState() read '%d' bytes from file: '%s'", $bytes, $filename ));
-            return unserialize($contents);
+            $contents = Utils::SafeGetContents($filename, __FUNCTION__, false, true);
+            return $contents;
         }
         // throw an exception on all other states, but not FAILSAVE as it's most of the times not there by default
         else if ($type !== IStateMachine::FAILSAVE)
@@ -205,13 +203,10 @@ class FileStateMachine implements IStateMachine {
 
         // exclusive block
         if ($mutex->Block()) {
-            $filecontents = @file_get_contents($this->userfilename);
-
-            if ($filecontents)
-                $users = unserialize($filecontents);
-            else
+            $users = Utils::SafeGetContents($this->userfilename, __FUNCTION__, true, true);
+            if (!$users) {
                 $users = array();
-
+            }
             // add user/device to the list
             if (!isset($users[$username])) {
                 $users[$username] = array();
@@ -223,7 +218,7 @@ class FileStateMachine implements IStateMachine {
             }
 
             if ($changed) {
-                $bytes = Utils::SafePutContents($this->userfilename, serialize($users));
+                $bytes = Utils::SafePutContents($this->userfilename, serialize($users), true);
                 ZLog::Write(LOGLEVEL_DEBUG, sprintf("FileStateMachine->LinkUserDevice(): wrote %d bytes to users file", $bytes));
             }
             else
@@ -249,13 +244,10 @@ class FileStateMachine implements IStateMachine {
 
         // exclusive block
         if ($mutex->Block()) {
-            $filecontents = @file_get_contents($this->userfilename);
-
-            if ($filecontents)
-                $users = unserialize($filecontents);
-            else
+            $users = Utils::SafeGetContents($this->userfilename, __FUNCTION__, true, true);
+            if (!$users) {
                 $users = array();
-
+            }
             // is this user listed at all?
             if (isset($users[$username])) {
                 if (isset($users[$username][$devid])) {
@@ -271,7 +263,7 @@ class FileStateMachine implements IStateMachine {
             }
 
             if ($changed) {
-                $bytes = Utils::SafePutContents($this->userfilename, serialize($users));
+                $bytes = Utils::SafePutContents($this->userfilename, serialize($users), true);
                 ZLog::Write(LOGLEVEL_DEBUG, sprintf("FileStateMachine->UnLinkUserDevice(): wrote %d bytes to users file", $bytes));
             }
             else
@@ -301,12 +293,10 @@ class FileStateMachine implements IStateMachine {
             return $out;
         }
         else {
-            $filecontents = file_get_contents($this->userfilename);
-            if ($filecontents)
-                $users = unserialize($filecontents);
-            else
+            $users = Utils::SafeGetContents($this->userfilename, __FUNCTION__, false, true);
+            if (!$users) {
                 $users = array();
-
+            }
             // get device list for the user
             if (isset($users[$username]))
                 return array_keys($users[$username]);
@@ -323,7 +313,7 @@ class FileStateMachine implements IStateMachine {
      */
     public function GetStateVersion() {
         if (file_exists($this->settingsfilename)) {
-            $settings = unserialize(file_get_contents($this->settingsfilename));
+            $settings = Utils::SafeGetContents($this->settingsfilename, __FUNCTION__, false, true);
             if (strtolower(gettype($settings) == "string") && strtolower($settings) == '2:1:{s:7:"version";s:1:"2";}') {
                 ZLog::Write(LOGLEVEL_INFO, "Broken state version file found. Attempt to autofix it. See https://jira.zarafa.com/browse/ZP-493 for more information.");
                 unlink($this->settingsfilename);
@@ -332,7 +322,7 @@ class FileStateMachine implements IStateMachine {
             }
         }
         else {
-            $filecontents = @file_get_contents($this->userfilename);
+            $filecontents = Utils::SafeGetContents($this->userfilename, __FUNCTION__, true);
             if ($filecontents)
                 $settings = array(self::VERSION => IStateMachine::STATEVERSION_01);
             else {
@@ -353,8 +343,9 @@ class FileStateMachine implements IStateMachine {
      * @return boolean
      */
     public function SetStateVersion($version) {
-        if (file_exists($this->settingsfilename))
-            $settings = unserialize(file_get_contents($this->settingsfilename));
+        if (file_exists($this->settingsfilename)){
+            $settings = Utils::SafeGetContents($this->settingsfilename, __FUNCTION__, false, true);
+        }
         else
             $settings = array(self::VERSION => IStateMachine::STATEVERSION_01);
 
@@ -498,14 +489,15 @@ class FileStateMachine implements IStateMachine {
      * @return array
      */
     protected function getStateFiles($pattern = null) {
-        if ($pattern === null) {
-            $pattern = STATE_DIR.'*/*/*';
+        if ($pattern === null || $pattern === $this->pattern) {
+            if (empty($this->statefiles)) {
+                $this->statefiles = glob($this->pattern, GLOB_NOSORT);
+                ZLog::Write(LOGLEVEL_DEBUG, sprintf("FileStateMachine->getStateFiles() read all state files '%d'", sizeof($this->statefiles)));
+            }
+            return $this->statefiles;
         }
-        if (empty($this->statefiles) || $pattern != $this->pattern) {
-            $this->statefiles = glob($pattern, GLOB_NOSORT);
-            $this->pattern = $pattern;
-        }
-        return $this->statefiles;
+        ZLog::Write(LOGLEVEL_DEBUG, sprintf("FileStateMachine->getStateFiles() reading state files of '%s'", $pattern));
+        return glob($pattern, GLOB_NOSORT);
     }
 
     /**

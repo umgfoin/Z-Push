@@ -102,16 +102,17 @@ class ImportChangesCombined implements IImportChanges {
      *
      * @param string        $id
      * @param int           $flags
+     * @param array         $categories
      *
      * @access public
      * @return boolean
      */
-    public function ImportMessageReadFlag($id, $flags) {
+    public function ImportMessageReadFlag($id, $flags, $categories = array()) {
         if (!$this->icc) {
             ZLog::Write(LOGLEVEL_ERROR, "ImportChangesCombined->ImportMessageReadFlag() icc not configured");
             return false;
         }
-        return $this->icc->ImportMessageReadFlag($id, $flags);
+        return $this->icc->ImportMessageReadFlag($id, $flags, $categories);
     }
 
     /**
@@ -197,7 +198,7 @@ class ImportChangesCombined implements IImportChanges {
     public function ImportFolderDeletion($folder) {
         $id = $folder->serverid;
         $parent = isset($folder->parentid) ? $folder->parentid : false;
-        ZLog::Write(LOGLEVEL_DEBUG, sprintf("ImportChangesCombined->ImportFolderDeletion('%s', '%s'), $id, $parent"));
+        ZLog::Write(LOGLEVEL_DEBUG, sprintf("ImportChangesCombined->ImportFolderDeletion('%s', '%s')", $id, $parent));
         $backendid = $this->backend->GetBackendId($id);
         if(!empty($this->backend->config['backends'][$backendid]['subfolder']) && $id == $backendid.$this->backend->config['delimiter'].'0') {
             ZLog::Write(LOGLEVEL_WARN, "ImportChangesCombined->ImportFolderDeletion() cannot change static folder");

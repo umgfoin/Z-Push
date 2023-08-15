@@ -288,10 +288,15 @@ class MAPIProvider {
 
             //set attendee's status and type if they're available and if we are the organizer
             $storeprops = $this->GetStoreProps();
-            if (isset($row[PR_RECIPIENT_TRACKSTATUS]) && isset($messageprops[$appointmentprops["representingentryid"]]) && $messageprops[$appointmentprops["representingentryid"]] == $storeprops[PR_MAILBOX_OWNER_ENTRYID])
+            if (isset($row[PR_RECIPIENT_TRACKSTATUS], $messageprops[$appointmentprops["representingentryid"]], $storeprops[PR_MAILBOX_OWNER_ENTRYID]) &&
+                    $messageprops[$appointmentprops["representingentryid"]] == $storeprops[PR_MAILBOX_OWNER_ENTRYID]) {
+
                 $attendee->attendeestatus = $row[PR_RECIPIENT_TRACKSTATUS];
-            if (isset($row[PR_RECIPIENT_TYPE]))
-                $attendee->attendeetype = $row[PR_RECIPIENT_TYPE];
+            }
+            if (isset($row[PR_RECIPIENT_TYPE])) {
+                // MAPI_ORIG is 0, but it's not defined in AS protocol
+                $attendee->attendeetype = $row[PR_RECIPIENT_TYPE] != 0 ? $row[PR_RECIPIENT_TYPE] : MAPI_TO;
+            }
             // Some attendees have no email or name (eg resources), and if you
             // don't send one of those fields, the phone will give an error ... so
             // we don't send it in that case.
@@ -582,8 +587,11 @@ class MAPIProvider {
 
         if(isset($messageprops[PR_SOURCE_KEY]))
             $sourcekey = $messageprops[PR_SOURCE_KEY];
-        else
-            return false;
+        else {
+            $mbe = new SyncObjectBrokenException("The message doesn't have a sourcekey");
+            $mbe->SetSyncObject($message);
+            throw $mbe;
+        }
 
         //set the body according to contentparameters and supported AS version
         $this->setMessageBody($mapimessage, $contentparameters, $message);
@@ -994,7 +1002,7 @@ class MAPIProvider {
             $folderOrigin = DeviceManager::FLD_ORIGIN_IMPERSONATED;
         }
         $folder->serverid = ZPush::GetDeviceManager()->GetFolderIdForBackendId($folder->BackendId, true, $folderOrigin, $folderprops[PR_DISPLAY_NAME]);
-        if($folderprops[PR_PARENT_ENTRYID] == $storeprops[PR_IPM_SUBTREE_ENTRYID]) {
+        if($folderprops[PR_PARENT_ENTRYID] == $storeprops[PR_IPM_SUBTREE_ENTRYID] || $folderprops[PR_PARENT_ENTRYID] == $storeprops[PR_IPM_PUBLIC_FOLDERS_ENTRYID]) {
             $folder->parentid = "0";
         }
         else {
@@ -1018,7 +1026,7 @@ class MAPIProvider {
      */
     public function GetFolderType($entryid, $class = false) {
         $storeprops = $this->GetStoreProps();
-        $inboxprops = $this->getInboxProps();
+        $inboxprops = $this->GetInboxProps();
 
         if($entryid == $storeprops[PR_IPM_WASTEBASKET_ENTRYID])
             return SYNC_FOLDER_TYPE_WASTEBASKET;
@@ -1278,12 +1286,12 @@ class MAPIProvider {
 
             if (isset($existingstartendprops[$amapping["starttime"]]) && !isset($appointment->starttime)) {
                 $appointment->starttime = $existingstartendprops[$amapping["starttime"]];
-                ZLog::Write(LOGLEVEL_WBXML, sprintf("MAPIProvider->setAppointment(): Parameter 'starttime' was not set, using value from MAPI %d (%s).", $appointment->starttime, gmstrftime("%Y%m%dT%H%M%SZ", $appointment->starttime)));
+                ZLog::Write(LOGLEVEL_WBXML, sprintf("MAPIProvider->setAppointment(): Parameter 'starttime' was not set, using value from MAPI %d (%s).", $appointment->starttime, Utils::FormatDateUtc($appointment->starttime,"yyyyMMdd'T'HHmmSS'Z'")));
             }
             if (isset($existingstartendprops[$amapping["endtime"]]) && !isset($appointment->endtime)) {
                 $appointment->endtime = $existingstartendprops[$amapping["endtime"]];
-                ZLog::Write(LOGLEVEL_WBXML, sprintf("MAPIProvider->setAppointment(): Parameter 'endtime' was not set, using value from MAPI %d (%s).", $appointment->endtime, gmstrftime("%Y%m%dT%H%M%SZ", $appointment->endtime)));
-            }
+                ZLog::Write(LOGLEVEL_WBXML, sprintf("MAPIProvider->setAppointment(): Parameter 'endtime' was not set, using value from MAPI %d (%s).", $appointment->endtime, Utils::FormatDateUtc($appointment->endtime,"yyyyMMdd'T'HHmmSS'Z'")));
+                }
         }
         if (!isset($appointment->starttime) || !isset($appointment->endtime)) {
             throw new StatusException("MAPIProvider->setAppointment(): Error, start and/or end time not set and can not be retrieved from MAPI.", SYNC_STATUS_SYNCCANNOTBECOMPLETED);
@@ -1314,9 +1322,6 @@ class MAPIProvider {
         $appointmentprops = array_merge($this->getPropIdsFromStrings($appointmentmapping), $this->getPropIdsFromStrings($appointmentprops));
         //appointment specific properties to be set
         $props = array();
-
-        //we also have to set the responsestatus and not only meetingstatus, so we use another mapi tag
-        $props[$appointmentprops["responsestatus"]] = (isset($appointment->responsestatus)) ? $appointment->responsestatus : olResponseNone;
 
         //sensitivity is not enough to mark an appointment as private, so we use another mapi tag
         $private = (isset($appointment->sensitivity) && $appointment->sensitivity >= SENSITIVITY_PRIVATE) ? true : false;
@@ -1383,19 +1388,18 @@ class MAPIProvider {
             if(isset($appointment->exceptions)) {
                 foreach($appointment->exceptions as $exception) {
                     // we always need the base date
-                    if(!isset($exception->exceptionstarttime))
+                    if(!isset($exception->exceptionstarttime)) {
                         continue;
+                    }
 
+                    $basedate = $this->getDayStartOfTimestamp($exception->exceptionstarttime);
                     if(isset($exception->deleted) && $exception->deleted) {
+                        $noexceptions = false;
                         // Delete exception
-                        if(!isset($recur["deleted_occurences"]))
-                            $recur["deleted_occurences"] = array();
-
-                        array_push($recur["deleted_occurences"], $this->getDayStartOfTimestamp($this->getLocaltimeByTZ($exception->exceptionstarttime, $tz)));
+                        $recurrence->createException(array(), $basedate, true);
                     }
                     else {
                         // Change exception
-                        $basedate = $this->getDayStartOfTimestamp($exception->exceptionstarttime);
                         $mapiexception = array("basedate" => $basedate);
                         //other exception properties which are not handled in recurrence
                         $exceptionprops = array();
@@ -1462,7 +1466,7 @@ class MAPIProvider {
 
         //always set the PR_SENT_REPRESENTING_* props so that the attendee status update also works with the webaccess
         $p = array( $appointmentprops["representingentryid"], $appointmentprops["representingname"], $appointmentprops["sentrepresentingaddt"],
-                    $appointmentprops["sentrepresentingemail"], $appointmentprops["sentrepresentinsrchk"]);
+                    $appointmentprops["sentrepresentingemail"], $appointmentprops["sentrepresentinsrchk"], $appointmentprops["responsestatus"]);
         $representingprops = $this->getProps($mapimessage, $p);
 
         if (!isset($representingprops[$appointmentprops["representingentryid"]])) {
@@ -1486,6 +1490,16 @@ class MAPIProvider {
                 $props[$appointmentprops["meetingstatus"]] = olMeeting;
             }
         }
+        //we also have to set the responsestatus and not only meetingstatus, so we use another mapi tag
+        if (!isset($props[$appointmentprops["responsestatus"]])) {
+            if (isset($appointment->responsetype)) {
+                $props[$appointmentprops["responsestatus"]] = $appointment->responsetype;
+            }
+            // only set responsestatus to none if it is not set on the server
+            elseif (!isset($representingprops[$appointmentprops["responsestatus"]])) {
+                $props[$appointmentprops["responsestatus"]] = olResponseNone;
+            }
+        }
 
         // Do attendees
         if(isset($appointment->attendees) && is_array($appointment->attendees)) {
@@ -1496,10 +1510,10 @@ class MAPIProvider {
             $org[PR_ENTRYID] = isset($representingprops[$appointmentprops["representingentryid"]]) ? $representingprops[$appointmentprops["representingentryid"]] : $props[$appointmentprops["representingentryid"]];
             $org[PR_DISPLAY_NAME] = isset($representingprops[$appointmentprops["representingname"]]) ? $representingprops[$appointmentprops["representingname"]] : $props[$appointmentprops["representingname"]];
             $org[PR_ADDRTYPE] = isset($representingprops[$appointmentprops["sentrepresentingaddt"]]) ? $representingprops[$appointmentprops["sentrepresentingaddt"]] : $props[$appointmentprops["sentrepresentingaddt"]];
-            $org[PR_EMAIL_ADDRESS] = isset($representingprops[$appointmentprops["sentrepresentingemail"]]) ? $representingprops[$appointmentprops["sentrepresentingemail"]] : $props[$appointmentprops["sentrepresentingemail"]];
+            $org[PR_SMTP_ADDRESS] = $org[PR_EMAIL_ADDRESS] = isset($representingprops[$appointmentprops["sentrepresentingemail"]]) ? $representingprops[$appointmentprops["sentrepresentingemail"]] : $props[$appointmentprops["sentrepresentingemail"]];
             $org[PR_SEARCH_KEY] = isset($representingprops[$appointmentprops["sentrepresentinsrchk"]]) ? $representingprops[$appointmentprops["sentrepresentinsrchk"]] : $props[$appointmentprops["sentrepresentinsrchk"]];
             $org[PR_RECIPIENT_FLAGS] = recipOrganizer | recipSendable;
-            $org[PR_RECIPIENT_TYPE] = MAPI_TO; // TODO: shouldn't that be MAPI_ORIG ?
+            $org[PR_RECIPIENT_TYPE] = MAPI_ORIG;
 
             array_push($recips, $org);
 
@@ -1508,6 +1522,7 @@ class MAPIProvider {
             foreach($appointment->attendees as $attendee) {
                 $recip = array();
                 $recip[PR_EMAIL_ADDRESS] = u2w($attendee->email);
+                $recip[PR_SMTP_ADDRESS] = u2w($attendee->email);
 
                 // lookup information in GAB if possible so we have up-to-date name for given address
                 $userinfo = array( array( PR_DISPLAY_NAME => $recip[PR_EMAIL_ADDRESS] ) );
@@ -1520,6 +1535,7 @@ class MAPIProvider {
                     $recip[PR_ENTRYID] = $userinfo[0][PR_ENTRYID];
                     $recip[PR_RECIPIENT_TYPE] = isset($attendee->attendeetype) ? $attendee->attendeetype : MAPI_TO;
                     $recip[PR_RECIPIENT_FLAGS] = recipSendable;
+                    $recip[PR_RECIPIENT_TRACKSTATUS] = isset($attendee->attendeestatus) ? $attendee->attendeestatus : olResponseNone;
                 }
                 else {
                     $recip[PR_DISPLAY_NAME] = u2w($attendee->name);
@@ -1637,13 +1653,13 @@ class MAPIProvider {
                 $pic = mapi_message_createattach($mapimessage);
                 // Set properties of the attachment
                 $picprops = array(
-                    PR_ATTACH_LONG_FILENAME_A => "ContactPicture.jpg",
+                    PR_ATTACH_LONG_FILENAME => "ContactPicture.jpg",
                     PR_DISPLAY_NAME => "ContactPicture.jpg",
                     0x7FFF000B => true,
                     PR_ATTACHMENT_HIDDEN => false,
                     PR_ATTACHMENT_FLAGS => 1,
                     PR_ATTACH_METHOD => ATTACH_BY_VALUE,
-                    PR_ATTACH_EXTENSION_A => ".jpg",
+                    PR_ATTACH_EXTENSION => ".jpg",
                     PR_ATTACH_NUM => 1,
                     PR_ATTACH_SIZE => $picsize,
                     PR_ATTACH_DATA_BIN => $picbinary,
@@ -2609,7 +2625,7 @@ class MAPIProvider {
         }
         else {
             $addrbook = $this->getAddressbook();
-            $stream = mapi_inetmapi_imtoinet($this->session, $addrbook, $mapimessage, array('use_tnef' => -1));
+            $stream = mapi_inetmapi_imtoinet($this->session, $addrbook, $mapimessage, array('use_tnef' => -1, 'ignore_missing_attachments' => 1));
         }
         if (is_resource($stream)) {
             $mstreamstat = mapi_stream_stat($stream);
@@ -2805,6 +2821,9 @@ class MAPIProvider {
             if(!isset($this->storeProps[PR_IPM_OUTBOX_ENTRYID])) {
                 $this->storeProps[PR_IPM_OUTBOX_ENTRYID] = false;
             }
+            if(!isset($this->storeProps[PR_IPM_PUBLIC_FOLDERS_ENTRYID])) {
+                $this->storeProps[PR_IPM_PUBLIC_FOLDERS_ENTRYID] = false;
+            }
         }
         return $this->storeProps;
     }
@@ -2812,12 +2831,12 @@ class MAPIProvider {
     /**
      * Gets the required inbox properties.
      *
-     * @access private
+     * @access public
      * @return array
      */
-    private function getInboxProps() {
+    public function GetInboxProps() {
         if (!isset($this->inboxProps) || empty($this->inboxProps)) {
-            ZLog::Write(LOGLEVEL_DEBUG, "MAPIProvider->getInboxProps(): Getting inbox properties.");
+            ZLog::Write(LOGLEVEL_DEBUG, "MAPIProvider->GetInboxProps(): Getting inbox properties.");
             $this->inboxProps = array();
             $inbox = mapi_msgstore_getreceivefolder($this->store);
             if ($inbox) {
@@ -2888,7 +2907,14 @@ class MAPIProvider {
                     if (strlen($persistData) == 4 && $persistData == PERSIST_SENTINEL) {
                         break;
                     }
-                    $unpackedData = unpack("vdataSize/velementID/velDataSize", substr($persistData, 2, 6));
+                    // incase of empty $persistData: Suppress error 'unpack(): Type v: not enough input, need 2, have 0'
+                    $part = substr($persistData, 2, 6);
+                    if(strlen($part)==6)
+                        $unpackedData = unpack("vdataSize/velementID/velDataSize", $part);
+                    else{
+                         ZLog::Write(LOGLEVEL_INFO, "MAPIProvider->getSpecialFoldersData(): Not enough data");
+                         $unpackedData = array();
+                    }
                     if (isset($unpackedData['dataSize']) && isset($unpackedData['elementID']) && $unpackedData['elementID'] == RSF_ELID_ENTRYID && isset($unpackedData['elDataSize'])) {
                         $this->specialFoldersData[] = substr($persistData, 8, $unpackedData['elDataSize']);
                         // Add PersistId and DataElementsSize lenghts to the data size as they're not part of it

@@ -73,10 +73,25 @@ abstract class InterProcessData {
             }
             // ZP-987: use an own mutex + storage key for each device on non-shared-memory IPC
             // this method is not suitable for the TopCollector atm
-            if (!($this instanceof TopCollector) && $this->provider_class !== 'IpcSharedMemoryProvider') {
-                $this->type = Request::GetDeviceID(). "-". $this->type;
+            $type = Request::GetDeviceID();
+            if ($type === "webservice") {
+                $type .= '-' . Request::GetAuthUser();
             }
-            $this->ipcProvider = new $this->provider_class($this->type, $this->allocate, get_class($this));
+            ZLog::Write(LOGLEVEL_DEBUG, sprintf("InterProcessData:__construct type: '%s'", $type));
+            // for simple mutex we use a global mutex setting $this->type for typeMutex and serverKey.
+            if ($this instanceof SimpleMutex) {
+                if ($this->provider_class === 'IpcMemcachedProvider') {
+                    // For memcached servers pool, we force it into the first server
+                    $this->ipcProvider = new $this->provider_class($this->type, 'globalmutex', get_class($this), $this->type);
+                } else {
+                    $this->ipcProvider = new $this->provider_class($this->type, $this->allocate, get_class($this), $this->type);
+                }
+            } else {
+            	if (!($this instanceof TopCollector) && $this->provider_class !== 'IpcSharedMemoryProvider' ) {
+                    $this->type = $type. "-". $this->type;
+            	}
+            	$this->ipcProvider = new $this->provider_class($this->type, $this->allocate, get_class($this), $type);
+            }
             ZLog::Write(LOGLEVEL_DEBUG, sprintf("%s initialised with IPC provider '%s' with type '%s'", get_class($this), $this->provider_class, $this->type));
 
         }
